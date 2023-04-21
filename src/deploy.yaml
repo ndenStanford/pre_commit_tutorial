@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ner-inf
+  labels:
+    app: ner-inf-v1
+spec:
+  selector:
+    app: ner-inf-v1
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ner-inf-v1
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: ner-inf-v1
+  template:
+    metadata:
+      labels:
+        app: ner-inf-v1
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      volumes:
+        - name: sock
+          emptyDir: {}
+        - name: model-file
+          hostPath:
+            path: /opt/models/model-store
+            type: Directory
+      nodeSelector:
+        workertype: inf1
+      containers:
+        - name: ner-inf
+          image:   484375727565.dkr.ecr.us-east-1.amazonaws.com/serve-neuron:prod_v2
+          ports:
+
+            - containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve
+            - --models=ner_neuron_b6.mar
+          livenessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - /home/model-server/liveness.sh
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: model-file
+              mountPath: "/home/model-server/model-store"
+
+
+
+          resources:
+            limits:
+              aws.amazon.com/neuron: 1  # desired number of Inferentia devices.
+            requests:
+              memory: 1024Mi
+
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
